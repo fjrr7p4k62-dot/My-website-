@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrepSphere - SSC Mock Tests & PYQs</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 antialiased min-h-screen flex flex-col justify-between">
+
+    <!-- App Container -->
+    <div id="app" class="flex-grow flex flex-col">
+        <!-- Dynamic Content Rendered Here -->
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // --- Application State ---
+        let state = {
+            view: 'login', // 'login', 'register', 'home', 'test-papers', 'test-categories', 'test-list', 'pyq', 'practice', 'exam', 'result'
+            user: null,
+            menuOpen: false,
+            selectedSscExam: null, // 'CGL', 'CHSL', 'CPO', 'Stenographer', 'GD'
+            selectedTestType: null, // 'chapter', 'sectional', 'full'
+            currentTest: null,
+            examActive: false,
+            currentQuestionIndex: 0,
+            answers: {},
+            markedForReview: {},
+            visited: {},
+            timeLeft: 900, // 15 minutes in seconds
+            timerInterval: null
+        };
+
+        // --- Persistent Storage Helpers ---
+        function getUsers() {
+            return JSON.parse(localStorage.getItem('prepsphere_users') || '[]');
+        }
+
+        function saveUsers(users) {
+            localStorage.setItem('prepsphere_users', JSON.stringify(users));
+        }
+
+        function getSessionUser() {
+            const userStr = localStorage.getItem('prepsphere_session');
+            return userStr ? JSON.parse(userStr) : null;
+        }
+
+        function setSessionUser(user) {
+            if (user) {
+                localStorage.setItem('prepsphere_session', JSON.stringify(user));
+            } else {
+                localStorage.removeItem('prepsphere_session');
+            }
+            state.user = user;
+        }
+
+        // Initialize Session on Load
+        state.user = getSessionUser();
+        if (state.user) {
+            state.view = 'home';
+        }
+
+        // --- Render Engine ---
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = '';
+
+            if (!state.user) {
+                if (state.view === 'register') {
+                    app.innerHTML = renderRegisterScreen();
+                } else {
+                    app.innerHTML = renderLoginScreen();
+                }
+            } else {
+                // Authenticated Layout wrapper with Top Navbar & Bottom Nav Bar
+                let contentHTML = '';
+                if (state.view === 'home') contentHTML = renderHomeView();
+                else if (state.view === 'test-papers') contentHTML = renderTestPapersView();
+                else if (state.view === 'test-categories') contentHTML = renderTestCategoriesView();
+                else if (state.view === 'test-list') contentHTML = renderTestListView();
+                else if (state.view === 'pyq') contentHTML = renderPyqView();
+                else if (state.view === 'practice') contentHTML = renderPracticeView();
+                else if (state.view === 'exam') contentHTML = renderExamView();
+                else if (state.view === 'result') contentHTML = renderResultView();
+
+                app.innerHTML = `
+                    ${state.view !== 'exam' ? renderTopNavbar() : ''}
+                    <main class="flex-grow pb-20">
+                        ${contentHTML}
+                    </main>
+                    ${state.view !== 'exam' ? renderBottomNavbar() : ''}
+                `;
+            }
+        }
+
+        // --- Views ---
+
+        function renderLoginScreen() {
+            return `
+                <div class="min-h-screen flex items-center justify-center bg-blue-50 px-4">
+                    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-blue-100">
+                        <div class="text-center mb-8">
+                            <div class="bg-blue-600 text-white w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-bold shadow-lg shadow-blue-200">P</div>
+                            <h1 class="text-2xl font-bold text-gray-900">Welcome to PrepSphere</h1>
+                            <p class="text-sm text-gray-500 mt-1">Secure Student Mock Test Portal</p>
+                        </div>
+                        <form onsubmit="handleLogin(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Email Address</label>
+                                <input type="email" id="loginEmail" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="student@example.com">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Password</label>
+                                <input type="password" id="loginPassword" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md transition duration-200 text-sm">Sign In</button>
+                        </form>
+                        <p class="text-center text-sm text-gray-600 mt-6">
+                            Don't have an account? <a href="#" onclick="switchView('register')" class="text-blue-600 font-semibold hover:underline">Register Now</a>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRegisterScreen() {
+            return `
+                <div class="min-h-screen flex items-center justify-center bg-blue-50 px-4 py-8">
+                    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-blue-100">
+                        <div class="text-center mb-8">
+                            <div class="bg-blue-600 text-white w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-bold shadow-lg shadow-blue-200">P</div>
+                            <h1 class="text-2xl font-bold text-gray-900">Create Student ID</h1>
+                            <p class="text-sm text-gray-500 mt-1">Register to access secure mock papers</p>
+                        </div>
+                        <form onsubmit="handleRegister(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Full Name</label>
+                                <input type="text" id="regName" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="Rahul Sharma">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Email Address</label>
+                                <input type="email" id="regEmail" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="student@example.com">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-gray-600 mb-1">Create Password</label>
+                                <input type="password" id="regPassword" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md transition duration-200 text-sm">Create Student ID</button>
+                        </form>
+                        <p class="text-center text-sm text-gray-600 mt-6">
+                            Already have an account? <a href="#" onclick="switchView('login')" class="text-blue-600 font-semibold hover:underline">Sign In</a>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTopNavbar() {
+            const initial = state.user ? state.user.name.charAt(0).toUpperCase() : 'S';
+            return `
+                <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+                    <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+                        <div class="flex items-center space-x-3 cursor-pointer" onclick="navigate('home')">
+                            <div class="bg-blue-600 text-white w-9 h-9 rounded-xl flex items-center justify-center font-bold text-lg">P</div>
+                            <span class="font-bold text-lg text-gray-900 tracking-tight">PrepSphere</span>
+                        </div>
+                        <div class="relative">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-9 h-9 bg-blue-100 text-blue-700 font-bold rounded-full flex items-center justify-center">${initial}</div>
+                                <button onclick="toggleMenu()" class="w-9 h-9 rounded-xl hover:bg-gray-100 flex items-center justify-center text-gray-600 transition">
+                                    <i class="fa-solid fa-ellipsis-vertical text-lg"></i>
+                                </button>
+                            </div>
+                            <!-- 3 Dot Dropdown Menu -->
+                            ${state.menuOpen ? `
+                                <div class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
+                                    <div class="px-4 py-2 border-b border-gray-100">
+                                        <p class="text-xs font-semibold text-gray-900">${state.user.name}</p>
+                                        <p class="text-[10px] text-gray-500 truncate">${state.user.email}</p>
+                                    </div>
+                                    <a href="#" onclick="navigate('home'); closeMenu();" class="block px-4 py-2 text-xs text-gray-700 hover:bg-blue-50"><i class="fa-solid fa-house mr-2 text-blue-600"></i> Home</a>
+                                    <a href="#" onclick="navigate('test-papers'); closeMenu();" class="block px-4 py-2 text-xs text-gray-700 hover:bg-blue-50"><i class="fa-solid fa-file-lines mr-2 text-blue-600"></i> Test Papers</a>
+                                    <a href="#" onclick="navigate('pyq'); closeMenu();" class="block px-4 py-2 text-xs text-gray-700 hover:bg-blue-50"><i class="fa-solid fa-clock-rotate-left mr-2 text-blue-600"></i> PYQ Section</a>
+                                    <a href="#" onclick="navigate('practice'); closeMenu();" class="block px-4 py-2 text-xs text-gray-700 hover:bg-blue-50"><i class="fa-solid fa-book-open mr-2 text-blue-600"></i> Practice Sheets</a>
+                                    <div class="border-t border-gray-100 mt-1 pt-1">
+                                        <a href="#" onclick="handleLogout()" class="block px-4 py-2 text-xs text-red-600 hover:bg-red-50 font-semibold"><i class="fa-solid fa-right-from-bracket mr-2"></i> Logout</a>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderBottomNavbar() {
+            const current = state.view;
+            return `
+                <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 max-w-lg mx-auto rounded-t-2xl shadow-lg">
+                    <div class="grid grid-cols-4 h-16 text-center">
+                        <button onclick="navigate('home')" class="flex flex-col items-center justify-center ${current === 'home' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}">
+                            <i class="fa-solid fa-house text-base mb-1"></i>
+                            <span class="text-[10px]">Home</span>
+                        </button>
+                        <button onclick="navigate('test-papers')" class="flex flex-col items-center justify-center ${current.includes('test') ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}">
+                            <i class="fa-solid fa-file-lines text-base mb-1"></i>
+                            <span class="text-[10px]">Test Papers</span>
+                        </button>
+                        <button onclick="navigate('pyq')" class="flex flex-col items-center justify-center ${current === 'pyq' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}">
+                            <i class="fa-solid fa-clock-rotate-left text-base mb-1"></i>
+                            <span class="text-[10px]">PYQ</span>
+                        </button>
+                        <button onclick="navigate('practice')" class="flex flex-col items-center justify-center ${current === 'practice' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}">
+                            <i class="fa-solid fa-book-open text-base mb-1"></i>
+                            <span class="text-[10px]">Practice Sheets</span>
+                        </button>
+                    </div>
+                </nav>
+            `;
+        }
+
+        function renderHomeView() {
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-6">
+                    <div class="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-lg">
+                        <h2 class="text-2xl font-bold mb-2">Hello, ${state.user.name} 👋</h2>
+                        <p class="text-blue-100 text-sm mb-4">Ready to crack your SSC exams? Pick up where you left off or start a new test.</p>
+                        <button onclick="navigate('test-papers')" class="bg-white text-blue-700 font-semibold px-5 py-2.5 rounded-xl text-xs shadow hover:bg-blue-50 transition">Explore Test Papers</button>
+                    </div>
+
+                    <h3 class="font-bold text-gray-900 text-lg">SSC Exam Categories</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        ${renderSscCard('SSC CGL', 'Combined Graduate Level Exam Tier-1 & Tier-2', 'fa-graduation-cap')}
+                        ${renderSscCard('SSC CHSL', 'Combined Higher Secondary Level Exam', 'fa-book')}
+                        ${renderSscCard('SSC CPO', 'Central Police Organization Sub-Inspector Exam', 'fa-shield-halved')}
+                        ${renderSscCard('SSC Stenographer', 'Grade C & D Stenographer Examination', 'fa-keyboard')}
+                        ${renderSscCard('SSC GD', 'General Duty Constable Examination', 'fa-user-shield')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSscCard(title, subtitle, icon) {
+            return `
+                <div onclick="selectSscExam('${title}')" class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-500 hover:shadow-md transition cursor-pointer flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid ${icon}"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-900 text-base">${title}</h4>
+                        <p class="text-xs text-gray-500 mt-0.5">${subtitle}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTestPapersView() {
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-900">SSC Test Papers Catalog</h2>
+                    <p class="text-xs text-gray-500">Select an SSC exam category below to access Chapter Tests, Sectional Tests, and Full Mocks.</p>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${['SSC CGL', 'SSC CHSL', 'SSC CPO', 'SSC Stenographer', 'SSC GD'].map(exam => `
+                            <div onclick="selectSscExam('${exam}')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-500 flex items-center justify-between cursor-pointer">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
+                                        <i class="fa-solid fa-file-lines"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-gray-900 text-sm">${exam} Mock Papers</h4>
+                                        <p class="text-[11px] text-gray-500">Chapter Tests • Sectional Tests • Full Mocks</p>
+                                    </div>
+                                </div>
+                                <i class="fa-solid fa-chevron-right text-gray-400 text-xs"></i>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTestCategoriesView() {
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-4">
+                    <button onclick="navigate('test-papers')" class="text-xs font-semibold text-blue-600 hover:underline flex items-center"><i class="fa-solid fa-arrow-left mr-1"></i> Back to SSC Exams</button>
+                    <h2 class="text-xl font-bold text-gray-900">${state.selectedSscExam} - Test Categories</h2>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div onclick="selectTestType('chapter')" class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-500 cursor-pointer flex items-center justify-between">
+                            <div>
+                                <h4 class="font-bold text-gray-900">1) Chapter Tests</h4>
+                                <p class="text-xs text-gray-500 mt-1">Topic-wise practice sets (15 Mins • 25 MCQs)</p>
+                            </div>
+                            <span class="bg-blue-50 text-blue-700 text-xs px-3 py-1.5 rounded-xl font-semibold">View All</span>
+                        </div>
+                        <div onclick="selectTestType('sectional')" class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-500 cursor-pointer flex items-center justify-between">
+                            <div>
+                                <h4 class="font-bold text-gray-900">2) Sectional Tests</h4>
+                                <p class="text-xs text-gray-500 mt-1">Moderate (10), Advance (10), Selection Level (10)</p>
+                            </div>
+                            <span class="bg-blue-50 text-blue-700 text-xs px-3 py-1.5 rounded-xl font-semibold">View All</span>
+                        </div>
+                        <div onclick="selectTestType('full')" class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-500 cursor-pointer flex items-center justify-between">
+                            <div>
+                                <h4 class="font-bold text-gray-900">3) Full Length Mocks</h4>
+                                <p class="text-xs text-gray-500 mt-1">5 Complete Tier-1 Simulated Exam Papers</p>
+                            </div>
+                            <span class="bg-blue-50 text-blue-700 text-xs px-3 py-1.5 rounded-xl font-semibold">View All</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTestListView() {
+            let title = '';
+            let items = [];
+            if (state.selectedTestType === 'chapter') {
+                title = `${state.selectedSscExam} - Chapter Tests`;
+                items = [
+                    { name: 'Quantitative Aptitude - Number System Test', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Reasoning - Coding & Decoding Test', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'English - Spotting Errors Test', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'General Awareness - Polity & Constitution Test', time: '15 Mins', qs: '25 MCQs' }
+                ];
+            } else if (state.selectedTestType === 'sectional') {
+                title = `${state.selectedSscExam} - Sectional Tests (Moderate, Advance, Selection)`;
+                items = [
+                    { name: 'Sectional Test 01 - Moderate Level', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Sectional Test 02 - Moderate Level', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Sectional Test 11 - Advance Level', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Sectional Test 12 - Advance Level', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Sectional Test 21 - Selection Level', time: '15 Mins', qs: '25 MCQs' },
+                    { name: 'Sectional Test 22 - Selection Level', time: '15 Mins', qs: '25 MCQs' }
+                ];
+            } else {
+                title = `${state.selectedSscExam} - Full Length Mocks (5 Tests)`;
+                items = [
+                    { name: 'Full Mock Test 01 (Official Pattern)', time: '60 Mins', qs: '100 MCQs' },
+                    { name: 'Full Mock Test 02 (Official Pattern)', time: '60 Mins', qs: '100 MCQs' },
+                    { name: 'Full Mock Test 03 (Official Pattern)', time: '60 Mins', qs: '100 MCQs' },
+                    { name: 'Full Mock Test 04 (Official Pattern)', time: '60 Mins', qs: '100 MCQs' },
+                    { name: 'Full Mock Test 05 (Official Pattern)', time: '60 Mins', qs: '100 MCQs' }
+                ];
+            }
+
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-4">
+                    <button onclick="navigate('test-categories')" class="text-xs font-semibold text-blue-600 hover:underline flex items-center"><i class="fa-solid fa-arrow-left mr-1"></i> Back to Test Categories</button>
+                    <h2 class="text-xl font-bold text-gray-900">${title}</h2>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${items.map((item, idx) => `
+                            <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-gray-900 text-sm">${item.name}</h4>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">${item.time} •${item.qs}</p>
+                                </div>
+                                <button onclick="startExam('${item.name}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow transition">Start Test</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPyqView() {
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-900">Previous Year Questions (PYQ)</h2>
+                    <p class="text-xs text-gray-500">Practice authentic previous year shift papers (15 Mins • 25 MCQs).</p>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${['SSC CGL 2025 Shift 1', 'SSC CGL 2025 Shift 2', 'SSC CHSL 2025 Tier-1', 'SSC CPO 2025 Paper-1', 'SSC GD Constable 2025'].map(pyq => `
+                            <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-gray-900 text-sm">${pyq}</h4>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">15 Mins • 25 MCQs</p>
+                                </div>
+                                <button onclick="startExam('${pyq}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow transition">Practice PYQ</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPracticeView() {
+            return `
+                <div class="max-w-3xl mx-auto p-4 space-y-4">
+                    <h2 class="text-xl font-bold text-gray-900">Practice Sheets</h2>
+                    <p class="text-xs text-gray-500">Topic-wise un-timed practice drill sheets (15 Mins • 25 MCQs).</p>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${['SSC CGL Practice Sheet - Algebra & Trigonometry', 'SSC CHSL Practice Sheet - Spotting Errors', 'SSC CPO Practice Sheet - Reasoning Matrix', 'SSC GD Practice Sheet - General Awareness'].map(sheet => `
+                            <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-gray-900 text-sm">${sheet}</h4>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">15 Mins • 25 MCQs</p>
+                                </div>
+                                <button onclick="startExam('${sheet}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow transition">Start Sheet</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderExamView() {
+            const qIndex = state.currentQuestionIndex;
+            const q = sampleQuestions[qIndex];
+            const minutes = Math.floor(state.timeLeft / 60);
+            const seconds = state.timeLeft % 60;
+
+            return `
+                <div class="min-h-screen bg-gray-100 flex flex-col">
+                    <!-- Exam Header -->
+                    <header class="bg-blue-900 text-white px-4 py-3 flex items-center justify-between shadow">
+                        <div>
+                            <h1 class="font-bold text-sm sm:text-base">${state.currentTest}</h1>
+                            <p class="text-[10px] text-blue-200">Candidate: ${state.user.name}</p>
+                        </div>
+                        <div class="bg-blue-800 px-4 py-2 rounded-xl border border-blue-700 text-center">
+                            <p class="text-[10px] text-blue-200 uppercase tracking-wide">Time Left</p>
+                            <p class="font-mono font-bold text-lg text-yellow-300">${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}</p>
+                        </div>
+                    </header>
+
+                    <!-- Exam Body -->
+                    <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 p-4 gap-4 max-w-7xl mx-auto w-full">
+                        <!-- Question Area -->
+                        <div class="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                                    <span class="text-xs font-bold text-blue-600 uppercase tracking-wide">Question ${qIndex + 1} of 25</span>
+                                    <span class="text-xs text-gray-400">Marks: +2.0, -0.5</span>
+                                </div>
+                                <h3 class="font-medium text-gray-900 text-base mb-6">${q.question}</h3>
+                                <div class="space-y-3">
+                                    ${q.options.map((opt, i) => `
+                                        <label class="flex items-center space-x-3 p-3.5 rounded-xl border border-gray-200 hover:bg-blue-50 cursor-pointer transition">
+                                            <input type="radio" name="examOption" ${state.answers[qIndex] === i ? 'checked' : ''} onclick="selectAnswer(${qIndex},${i})" class="text-blue-600 focus:ring-blue-500 h-4 w-4">
+                                            <span class="text-sm text-gray-800 font-medium">${opt}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between pt-6 border-t border-gray-100 mt-6">
+                                <button onclick="markForReview(${qIndex})" class="px-4 py-2.5 bg-purple-50 text-purple-700 font-semibold rounded-xl text-xs hover:bg-purple-100 transition">Mark for Review</button>
+                                <div class="space-x-2">
+                                    ${qIndex > 0 ? `<button onclick="prevQuestion()" class="px-4 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-xl text-xs hover:bg-gray-200 transition">Previous</button>` : ''}
+                                    ${qIndex < 24 ? `<button onclick="nextQuestion()" class="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-xl text-xs hover:bg-blue-700 transition">Save & Next</button>` : `<button onclick="submitExam()" class="px-5 py-2.5 bg-green-600 text-white font-semibold rounded-xl text-xs hover:bg-green-700 transition">Submit Test</button>`}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Question Palette -->
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
+                            <div>
+                                <h4 class="font-bold text-gray-900 text-sm mb-3">Question Palette</h4>
+                                <div class="grid grid-cols-5 gap-2 mb-6">
+                                    ${Array.from({length: 25}, (_, i) => {
+                                        let bg = 'bg-gray-100 text-gray-700';
+                                        if (state.answers[i] !== undefined) bg = 'bg-green-600 text-white';
+                                        if (state.markedForReview[i]) bg = 'bg-purple-600 text-white';
+                                        if (state.currentQuestionIndex === i) bg += ' ring-2 ring-offset-2 ring-blue-600';
+                                        return `<button onclick="goToQuestion(${i})" class="w-10 h-10 rounded-xl font-bold text-xs flex items-center justify-center ${bg}">${i+1}</button>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                            <button onclick="submitExam()" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl text-xs shadow transition">End & Submit Test</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderResultView() {
+            return `
+                <div class="max-w-xl mx-auto p-6 my-10 bg-white rounded-3xl shadow-xl border border-gray-100 text-center space-y-6">
+                    <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-3xl font-bold shadow-inner">
+                        <i class="fa-solid fa-trophy"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">Test Submitted Successfully!</h2>
+                        <p class="text-sm text-gray-500 mt-1">${state.currentTest}</p>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <div>
+                            <p class="text-[10px] text-gray-500 uppercase font-semibold">Attempted</p>
+                            <p class="font-bold text-base text-gray-900">${Object.keys(state.answers).length}/25</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-500 uppercase font-semibold">Accuracy</p>
+                            <p class="font-bold text-base text-blue-600">85%</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-500 uppercase font-semibold">Est. Score</p>
+                            <p class="font-bold text-base text-green-600">38/50</p>
+                        </div>
+                    </div>
+                    <button onclick="navigate('home')" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow transition">Return to Dashboard</button>
+                </div>
+            `;
+        }
+
+        // --- Sample Questions Data ---
+        const sampleQuestions = Array.from({length: 25}, (_, i) => ({
+            question: `Sample SSC Tier-1 Question No. ${i+1}: What is the numerical value or simplified outcome of the given standard quantitative expression?`,
+            options: ['Option A: 145', 'Option B: 230', 'Option C: 312', 'Option D: 420'],
+            correct: 0
+        }));
+
+        // --- Actions & Controllers ---
+        function navigate(viewName) {
+            state.view = viewName;
+            state.menuOpen = false;
+            window.scrollTo(0, 0);
+            render();
+        }
+
+        function toggleMenu() {
+            state.menuOpen = !state.menuOpen;
+            render();
+        }
+
+        function closeMenu() {
+            state.menuOpen = false;
+        }
+
+        function selectSscExam(examName) {
+            state.selectedSscExam = examName;
+            navigate('test-categories');
+        }
+
+        function selectTestType(type) {
+            state.selectedTestType = type;
+            navigate('test-list');
+        }
+
+        function startExam(testName) {
+            state.currentTest = testName;
+            state.currentQuestionIndex = 0;
+            state.answers = {};
+            state.markedForReview = {};
+            state.timeLeft = 900; // 15 minutes
+            state.view = 'exam';
+            render();
+
+            if (state.timerInterval) clearInterval(state.timerInterval);
+            state.timerInterval = setInterval(() => {
+                state.timeLeft--;
+                if (state.timeLeft <= 0) {
+                    clearInterval(state.timerInterval);
+                    submitExam();
+                } else {
+                    // Update timer text directly without full re-render to maintain smoothness
+                    const timerEl = document.querySelector('.font-mono');
+                    if (timerEl) {
+                        const m = Math.floor(state.timeLeft / 60);
+                        const s = state.timeLeft % 60;
+                        timerEl.innerText = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                    }
+                }
+            }, 1000);
+        }
+
+        function selectAnswer(qIndex, optionIndex) {
+            state.answers[qIndex] = optionIndex;
+        }
+
+        function markForReview(qIndex) {
+            state.markedForReview[qIndex] = !state.markedForReview[qIndex];
+            render();
+        }
+
+        function nextQuestion() {
+            if (state.currentQuestionIndex < 24) {
+                state.currentQuestionIndex++;
+                render();
+            }
+        }
+
+        function prevQuestion() {
+            if (state.currentQuestionIndex > 0) {
+                state.currentQuestionIndex--;
+                render();
+            }
+        }
+
+        function goToQuestion(index) {
+            state.currentQuestionIndex = index;
+            render();
+        }
+
+        function submitExam() {
+            if (state.timerInterval) clearInterval(state.timerInterval);
+            state.view = 'result';
+            render();
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value.trim();
+            const pass = document.getElementById('loginPassword').value;
+            const users = getUsers();
+            const found = users.find(u => u.email === email && u.password === pass);
+
+            if (found) {
+                setSessionUser(found);
+                navigate('home');
+            } else {
+                alert('Invalid email or password! Please check your credentials or register a new student ID.');
+            }
+        }
+
+        function handleRegister(e) {
+            e.preventDefault();
+            const name = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const password = document.getElementById('regPassword').value;
+            
+            let users = getUsers();
+            if (users.some(u => u.email === email)) {
+                alert('An account with this email already exists. Please sign in.');
+                return;
+            }
+
+            const newUser = { name, email, password };
+            users.push(newUser);
+            saveUsers(users);
+            setSessionUser(newUser);
+            alert('Student ID created successfully!');
+            navigate('home');
+        }
+
+        function handleLogout() {
+            setSessionUser(null);
+            state.view = 'login';
+            state.menuOpen = false;
+            render();
+        }
+
+        // Initial render call
+        render();
+    </script>
+</body>
+</html>
